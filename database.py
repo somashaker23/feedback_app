@@ -7,9 +7,18 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv()
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+from urllib.parse import urlparse, urlunparse
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+_raw_url = os.environ["DATABASE_URL"]
+# Neon gives postgresql://...?sslmode=require&channel_binding=require
+# asyncpg needs the +asyncpg dialect and SSL via connect_args — strip all query params.
+_parsed = urlparse(_raw_url)
+DATABASE_URL = urlunparse(_parsed._replace(
+    scheme="postgresql+asyncpg",
+    query="",
+))
+
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args={"ssl": True})
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Render Deployment
 
-Push to a GitHub repo, then create a new Render **Web Service** pointing at it. Render auto-detects `render.yaml` and `Dockerfile`.
+Push to a GitHub repo, then create a new Render **Web Service** pointing at it.
 
-1. In the Render dashboard, add the `DATABASE_URL` environment variable (Neon connection string).
-2. Render builds the Docker image (multi-stage: Node → React build, then Python runtime) and deploys.
-3. The app is served at `https://<service>.onrender.com`.
+- **Build Command:** `cd frontend && npm ci && npm run build`
+- **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
 
-The `render.yaml` declares the service as `runtime: docker`. The `Dockerfile` handles both the React build and the Python server in one image — no separate build step needed on Render.
+Render auto-installs Python dependencies from `pyproject.toml` before the build command runs. The build command only needs to handle the React build — Render's build environment has Node pre-installed.
+
+Add `DATABASE_URL` as an environment variable in the Render dashboard (Neon connection string). The `render.yaml` in the repo captures this config so future redeploys are consistent.
 
 ## Setup (local)
 
