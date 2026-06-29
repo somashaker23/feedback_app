@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: feedback
+    runtime: docker
+    envVars:
+      - key: DATABASE_URL
+        sync: false
