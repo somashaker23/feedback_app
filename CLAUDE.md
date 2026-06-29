@@ -31,4 +31,8 @@ This is a single-file FastAPI application (`main.py`) — a farewell feedback co
 - Lines 235–257: The two API routes
 - Line 261+: `__main__` entry point
 
-**Storage:** `feedback_data.json` is created automatically on first submission. It holds a flat list of feedback objects. There is no database — persistence is local file only.
+**Storage:** `feedback_data.json` is created automatically on first submission. It holds a flat list of feedback objects. There is no database — persistence is local file only. There is no read endpoint; inspect submissions by opening `feedback_data.json` directly.
+
+**Customization:** Before sharing, update the `<h2>` tag on line 149 of `HTML_TEMPLATE` — it contains the placeholder `Leave a note for Your Name`.
+
+**Network sharing:** The app binds to `0.0.0.0` so colleagues on the same LAN can reach it at `http://<host-ip>:8000`. The startup message prints a reminder to substitute the actual IP.
