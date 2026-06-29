@@ -1,7 +1,7 @@
 [project]
 name = "feedback"
 version = "0.1.0"
-description = "feedback storage app"
+description = "a feedback storage app"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.138.1",
