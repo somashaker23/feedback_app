@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from models import FeedbackInput
 from database import init_db, upsert_feedback
@@ -14,8 +13,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Farewell Feedback", lifespan=lifespan)
 
-app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
-
 
 @app.post("/api/feedback")
 async def submit_feedback(feedback: FeedbackInput):
@@ -26,9 +23,9 @@ async def submit_feedback(feedback: FeedbackInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/{full_path:path}")
-async def serve_frontend(full_path: str):
-    return FileResponse("frontend/dist/index.html")
+# Must come last — serves all of dist/ (avatar.png, assets/*, etc.)
+# html=True makes it fall back to index.html for any path with no matching file.
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
 
 
 if __name__ == "__main__":
