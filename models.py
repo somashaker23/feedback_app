@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class FeedbackInput(BaseModel):
+    submission_id: str = Field(..., max_length=36)
     name: str | None = Field(None, max_length=50)
     reliability_rating: int = Field(..., ge=1, le=4)
     reliability_comment: str | None = Field(None, max_length=1000)

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ScaleQuestion from './components/ScaleQuestion';
 import EnergySlider from './components/EnergySlider';
 import TextQuestion from './components/TextQuestion';
+import { loadState, saveState, getPhase, msRemaining } from './formState';
 
 const RELIABILITY_ANCHORS = [
   'Missed deadlines or commitments with no heads-up.',
@@ -29,14 +30,58 @@ const initialState = {
   future_skill: '',
 };
 
-export default function App() {
-  const [form, setForm] = useState(initialState);
-  const [errors, setErrors] = useState({});
-  const [submitted, setSubmitted] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-  const [loading, setLoading] = useState(false);
+const ENERGY_LABELS = ['Consistently drained', 'Somewhat drained', 'Somewhat energized', 'Consistently energized'];
+const RATING_LABELS = ['Rarely/Never', 'Sometimes', 'Often', 'Consistently/Always'];
 
-  const set = (field, value) => setForm(f => ({ ...f, [field]: value }));
+function buildMailtoUrl(form) {
+  const r = (n) => n ? RATING_LABELS[n - 1] : '(not answered)';
+  const lines = [
+    'I ran into a technical issue submitting my farewell feedback through the form.',
+    'Here are my responses:',
+    '',
+    `Q1 — Reliability: ${r(form.reliability_rating)}`,
+    form.reliability_comment ? `   → ${form.reliability_comment}` : '',
+    '',
+    `Q2 — Receptivity: ${r(form.receptivity_rating)}`,
+    form.receptivity_comment ? `   → ${form.receptivity_comment}` : '',
+    '',
+    `Q3 — Energy: ${ENERGY_LABELS[(form.energy_rating || 3) - 1]}`,
+    '',
+    `Q4 — Blind Spot: ${form.blind_spot || '(not answered)'}`,
+    '',
+    `Q5 — Future Skill: ${form.future_skill || '(not answered)'}`,
+    '',
+    `From: ${form.showName && form.name.trim() ? form.name.trim() : 'Anonymous'}`,
+  ].filter(Boolean).join('\n');
+
+  return `https://mail.google.com/mail/?view=cm&to=somashaker23%40gmail.com&su=${encodeURIComponent('Farewell Feedback Note')}&body=${encodeURIComponent(lines)}`;
+}
+
+export default function App() {
+  const [storedState, setStoredState] = useState(() => loadState());
+  const phase = getPhase(storedState);
+
+  const [form, setForm] = useState(() =>
+    (phase === 'EDITING' || phase === 'SUBMITTED_EDITABLE') && storedState?.data
+      ? { ...initialState, ...storedState.data }
+      : initialState
+  );
+  const [errors, setErrors] = useState({});
+  const [showEmailFallback, setShowEmailFallback] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [dots, setDots] = useState('');
+
+  useEffect(() => {
+    if (!loading) { setDots(''); return; }
+    const id = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 450);
+    return () => clearInterval(id);
+  }, [loading]);
+
+  const set = (field, value) => setForm(f => {
+    const next = { ...f, [field]: value };
+    saveState({ status: 'editing', data: next });
+    return next;
+  });
 
   const validate = () => {
     const errs = {};
@@ -62,9 +107,13 @@ export default function App() {
     if (Object.keys(errs).length > 0) return;
 
     setLoading(true);
-    setSubmitError('');
+    setShowEmailFallback(false);
+
+    const submittedAt = storedState?.submittedAt ?? Date.now();
+    const id = storedState?.id ?? crypto.randomUUID();
 
     const payload = {
+      submission_id: id,
       name: form.showName ? form.name.trim() || null : null,
       reliability_rating: form.reliability_rating,
       reliability_comment: form.reliability_comment.trim() || null,
@@ -82,26 +131,56 @@ export default function App() {
         body: JSON.stringify(payload),
       });
       if (res.ok) {
-        setSubmitted(true);
+        const next = saveState({ status: 'submitted', submittedAt });
+        setStoredState(next);
       } else {
         const body = await res.json().catch(() => ({}));
-        setSubmitError(body.detail || 'Something went wrong. Please try again.');
+        console.error('[Feedback] Submit failed:', body.detail || res.status);
+        setShowEmailFallback(true);
       }
-    } catch {
-      setSubmitError('Network error. Make sure you are on the same network.');
+    } catch (err) {
+      console.error('[Feedback] Network error:', err);
+      setShowEmailFallback(true);
     } finally {
       setLoading(false);
     }
   };
 
-  if (submitted) {
+  const handleEdit = () => {
+    const fresh = loadState();
+    if (getPhase(fresh) !== 'SUBMITTED_EDITABLE') {
+      setStoredState(fresh);
+      return;
+    }
+    const next = saveState({ status: 'editing' });
+    setForm({ ...initialState, ...fresh.data });
+    setStoredState(next);
+  };
+
+  if (phase === 'SUBMITTED_LOCKED') {
     return (
       <div style={styles.card}>
         <div style={styles.successIcon}>🙌</div>
         <p style={styles.successText}>Thank you so much!</p>
         <p style={styles.successSub}>
-          I really appreciate you taking the time to write this. It means a lot to me.
+          Your note has been saved. Come back tomorrow if you&apos;d like to update it.
         </p>
+      </div>
+    );
+  }
+
+  if (phase === 'SUBMITTED_EDITABLE') {
+    const mins = Math.ceil(msRemaining(storedState) / 60000);
+    return (
+      <div style={styles.card}>
+        <div style={styles.successIcon}>✏️</div>
+        <p style={styles.successText}>You&apos;ve already submitted today.</p>
+        <p style={styles.successSub}>
+          Edit window closes in {mins} minute{mins !== 1 ? 's' : ''}.
+        </p>
+        <button onClick={handleEdit} style={{ ...styles.button, marginTop: 24 }}>
+          Edit my response
+        </button>
       </div>
     );
   }
@@ -179,10 +258,23 @@ export default function App() {
           {errors.name && <p style={styles.fieldError}>{errors.name}</p>}
         </div>
 
-        {submitError && <p style={styles.submitError}>{submitError}</p>}
+        {showEmailFallback && (
+          <div style={styles.emailFallback}>
+            <p style={styles.emailFallbackMsg}>Something went wrong on our end.</p>
+            <a href={buildMailtoUrl(form)} target="_blank" rel="noopener noreferrer" style={styles.emailBtn}>
+              Send your feedback via email instead →
+            </a>
+          </div>
+        )}
 
-        <button type="submit" disabled={loading} style={styles.button}>
-          {loading ? 'Sending…' : 'Send Farewell Note'}
+        {loading && (
+          <p style={styles.loadingMsg}>
+            Saving your note to the server{dots}
+          </p>
+        )}
+
+        <button type="submit" disabled={loading} style={{ ...styles.button, ...(loading ? styles.buttonLoading : {}) }}>
+          {loading ? `Sending${dots}` : 'Send Farewell Note'}
         </button>
       </form>
 
@@ -205,12 +297,16 @@ const styles = {
     marginTop: 8, padding: '8px 10px', width: '100%', border: '1px solid #ddd',
     borderRadius: 6, fontFamily: 'inherit', fontSize: 14,
   },
-  submitError: { color: '#e74c3c', fontSize: 13, marginBottom: 12, textAlign: 'center' },
+  emailFallback: { background: '#fff8f8', border: '1px solid #fcd0d0', borderRadius: 8, padding: '14px 16px', marginBottom: 14, textAlign: 'center' },
+  emailFallbackMsg: { color: '#c0392b', fontSize: 13, margin: '0 0 10px' },
+  emailBtn: { display: 'inline-block', background: '#c0392b', color: '#fff', borderRadius: 6, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' },
   button: {
     width: '100%', padding: '14px 0', background: '#3498db', color: '#fff',
     border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 600,
-    cursor: 'pointer', transition: 'background 0.2s',
+    cursor: 'pointer', transition: 'background 0.2s, opacity 0.2s',
   },
+  buttonLoading: { opacity: 0.7, cursor: 'not-allowed' },
+  loadingMsg: { textAlign: 'center', fontSize: 13, color: '#7f8c8d', marginBottom: 10 },
   privacy: { fontSize: 12, color: '#bdc3c7', marginTop: 16, textAlign: 'center' },
   successIcon: { fontSize: 52, marginBottom: 12 },
   successText: { color: '#27ae60', fontSize: 20, fontWeight: 700, margin: '0 0 8px' },
